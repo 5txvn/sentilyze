@@ -1,16 +1,33 @@
+#!/usr/bin/env node
 const axios = require('axios');
-const prompt = require('prompt-sync')();
 const chalk = require('chalk');
+const fs = require('fs');
+const readline = require('readline');
+const rl = readline.createInterface({
+  input: process.stdin,
+  output: process.stdout
+});
 const wikipediaTickers = require("./wikipediaTickers.json");
 
-/*
-axios.get(`https://en.wikipedia.org/w/api.php?action=query&format=json&prop=pageviews&titles=American_Airlines_Group`).then(result => {
-    console.log("reached")
-    console.log(result.data)
-}).catch(err => {
-    console.error(err)
+let validTickerCount = 0;
+Object.keys(wikipediaTickers).forEach(ticker => {
+    if(wikipediaTickers[ticker] != "") {
+        validTickerCount++;
+    }
 })
-    */
+
+//process all the cli flags
+let flags = {}
+process.argv.forEach((arg, i) => {
+    if(arg.startsWith("-")) {
+        if (i+1<process.argv.length) {
+            flags[arg.replace("-", "")] = process.argv[i+1];
+        } else {
+            flags[arg.replace("-", "")] = "";
+        }
+    }
+})
+
 
 async function wikipedia(ticker) {
     if(wikipediaTickers[ticker.toUpperCase()] == undefined || wikipediaTickers[ticker.toUpperCase()] == "") {
@@ -47,20 +64,167 @@ function processDateString(originalDateString) {
 }
 
 async function main() {
-    const input = prompt("Enter command: ").trim();
-
-    switch(input.split(" ")[0]) {
+    let response;
+    switch(process.argv[2]) {
+        //get help for sentilyze
         case "help":
-            console.log(`\n${chalk.bold.red("Sentilyze Commands")}\n`);
-            //general commands
-            console.log(`${chalk.bold("☆")}${chalk.green.bold(" help")} - List the available commands for Sentilyze`);
-            console.log("------------------------------");
-            //wikipedia commands
-            console.log(`${chalk.bold("☆")}${chalk.green.bold(" wiki viewdate [ticker] [YYYY-MM-DD]")} - Get the corporate Wikipedia page views for a particular ticker on a particular date (date can be shorthanded to mm-dd or even m-d)`);
-            console.log(`${chalk.bold("☆")}${chalk.green.bold(" wiki viewchange [ticker] [YYYY-MM-DD] [YYYY-MM-DD]")} - Get the change in corporate Wikipedia page views for a particular ticker between two dates (date can be shorthanded to mm-dd or even m-d)`);
-            console.log(`${chalk.bold("☆")}${chalk.green.bold(" wiki maxviews [ticker]")} - Get the max views of a corporate Wikipedia page for a particular ticker (only checks last 60 days)`);
-            console.log("");
+            console.log(`${chalk.bold.red("\nSentilyze Commands (for more specifics view documentation)")}\n`);
+            //console.log(`${chalk.bold("☆")}${chalk.green.bold(" help")} - List the available commands for Sentilyze`);
+            //console.log("------------------------------");
+            console.log(`${chalk.bold("☆")}${chalk.green.bold(" wiki viewdate")} - Get the corporate Wikipedia page views for a particular ticker on a particular date`);
+            console.log(`${chalk.bold("☆")}${chalk.green.bold(" wiki weekend-gainers")} - Fetches the top page view gainers for the past week from Friday to Sunday inclusive`);
+            console.log(""); process.exit();
             break;
+        //get views for a ticker for a particular date
+        case "dateviews":
+            if(!flags["t"]) {
+                console.log(chalk.red.bold("No ticker entered, please use the -t flag to provide a ticker"));
+            } else {
+                response = await wikipedia(flags["t"]);
+                if (!response) {
+                    console.log(chalk.red.bold("Invalid ticker entered, please try again"));
+                } else {
+                    if(!flags["d"]) {
+                        console.log(chalk.red.bold("No date entered, please use the -d flag to provide a date"));
+                    } else {
+                        if(!response[processDateString(flags["d"])]) {
+                            console.log(chalk.red.bold("Invalid date entered (must be within the last 60 days), please try again"));
+                        } else {
+                            console.log(`Page views for ticker ${chalk.bold(flags["t"].toUpperCase())} on date ${chalk.bold(processDateString(flags["d"]))}: ${chalk.bold.magenta(response[processDateString(flags["d"])])}`);
+                        }
+                    }
+                }
+            }
+            console.log(""); process.exit();
+            break;
+        
+        case "maxviews":
+            if(!flags["t"]) {
+                console.log(chalk.red.bold("\nNo ticker provided, please use the -t flag to provide a ticker\n")); process.exit();
+            } else {
+                response = await wikipedia(flags["t"]);
+                if(!response) {
+                    console.log(chalk.red.bold("Invalid ticker provided, please provide a different ticker\n")); process.exit();
+                } else {
+                    let maxViews = 0;
+                    let maxViewsDate = "";
+                    let index = 0;
+                    for(const date of Object.keys(response).reverse()) {
+                        if(flags["q"]) {
+                            if(index < parseInt(flags["q"])) {
+                                if(response[date] > maxViews) {
+                                    maxViews = response[date];
+                                    maxViewsDate = date;
+                                }
+                            }
+                            index++;
+                        } else {
+                            if(response[date] > maxViews) {
+                                maxViews = response[date];
+                                maxViewsDate = date;
+                            }
+                        }
+                    }
+                    console.log(`Maximum views for ticker ${chalk.bold(flags["t"].toUpperCase())} in the last ${chalk.bold(flags["q"] ? flags["q"] : 60)} days: ${chalk.bold.magenta(maxViews)} on ${chalk.bold.magenta(maxViewsDate)}\n`); process.exit();
+                }
+            }
+            break;
+        
+        case "minviews":
+            if(!flags["t"]) {
+                console.log(chalk.red.bold("\nNo ticker provided, please use the -t flag to provide a ticker\n")); process.exit();
+            } else {
+                response = await wikipedia(flags["t"]);
+                if(!response) {
+                    console.log(chalk.red.bold("Invalid ticker provided, please provide a different ticker\n")); process.exit();
+                } else {
+                    let minViews = response[Object.keys(response).reverse()[0]];
+                    let minViewsDate = "";
+                    let index = 0;
+                    for(const date of Object.keys(response).reverse()) {
+                        if(flags["q"]) {
+                            if(index < parseInt(flags["q"])) {
+                                if(response[date] < minViews) {
+                                    minViews = response[date];
+                                    minViewsDate = date;
+                                }
+                            }
+                            index++;
+                        } else {
+                            if(response[date] < minViews) {
+                                minViews = response[date];
+                                minViewsDate = date;
+                            }
+                        }
+                    }
+                    console.log(`Minimum views for ticker ${chalk.bold(flags["t"].toUpperCase())} in the last ${chalk.bold(flags["q"] ? flags["q"] : 60)} days: ${chalk.bold.magenta(minViews)} on ${chalk.bold.magenta(minViewsDate)}\n`); process.exit();
+                }
+            }
+            break;
+
+        //gets top n weekend gainers
+        case "weekend-gainers":
+            if(fs.readdirSync("local").length == 0) {
+                console.log(chalk.red.bold("You haven't localized ticker data, to do so please type \"wiki localize\" in the terminal"));
+            } else {
+                const stocks = [];
+                for(const tickerFile of fs.readdirSync("local")) {
+                    const tickerData = JSON.parse(fs.readFileSync(`./local/${tickerFile}`, 'utf8'));
+                    let index = 0;
+                    for (const date of Object.keys(tickerData).reverse()) {
+                        const d = new Date(date);
+                        if (d.getUTCDay() == 0) {
+                            const change = Math.floor(tickerData[Object.keys(tickerData).reverse()[index]] / tickerData[Object.keys(tickerData).reverse()[index + 2]]*10000-10000) / 100;
+                            if(flags["t"]) {
+                                if(parseInt(flags["t"]) <= tickerData[Object.keys(tickerData).reverse()[index + 1]]) {
+                                    stocks.push({ticker: tickerFile.replace(".json", ""), gain: change});
+                                }
+                            } else {
+                                stocks.push({ticker: tickerFile.replace(".json", ""), gain: change});
+                            }
+                            break;
+                        }
+                        index++;
+                    }
+                }
+                stocks.sort((a, b) => b.gain - a.gain);
+                let topGainers;
+                if(flags["q"]) {
+                    topGainers = stocks.slice(0, parseInt(flags["q"]));
+                } else {
+                    topGainers = stocks.slice(0, 10);
+                }
+                console.log(chalk.bold.bgMagenta(`\nTop Weekend Gainers (first ${flags["q"] ? flags["q"] : 10} entries)\n`));
+                let countIndex = 1;
+                for(const stock of topGainers) {
+                    console.log(`${chalk.bold(countIndex)}. ${chalk.bold.magenta(stock.ticker)}: ${chalk.bold(stock.gain)}% gain`);
+                    countIndex++;
+                }
+                console.log(""); process.exit();
+            }
+            break;
+
+        //localize all ticker data
+        case "localize":
+            let count = 1;
+            for(const ticker of Object.keys(wikipediaTickers)) {
+                if (wikipediaTickers[ticker] != "") {
+                    const result = await wikipedia(ticker);
+                    fs.writeFileSync(`./local/${ticker}.json`, JSON.stringify(result, null, 2));
+                    readline.clearLine(process.stdout, 0);
+                    readline.cursorTo(process.stdout, 0);
+                    process.stdout.write(chalk.bold.green(`Localized ticker data for ticker ${count}/${validTickerCount}`));  
+                    count++;
+                }
+            }
+            readline.clearLine(process.stdout, 0);
+            readline.cursorTo(process.stdout, 0);
+            console.log(chalk.bold.bgGreen("All Wikipedia data has been localized!"));
+            console.log(""); process.exit();
+            break;
+        default:
+            console.log(chalk.bgRed.bold("Invalid command used, please type \"help\" for a list of accepted commands"));
+            /*
         case "wiki":
             let response;
             switch(input.split(" ")[1]) {
@@ -106,12 +270,53 @@ async function main() {
                         console.log(`Max page views in past 60 days for ticker ${chalk.bold(input.split(" ")[2])}: ${chalk.bold.magenta(maxViews)} on date ${chalk.bold.magenta(maxViewsString)}`);
                     }
                     break;
+                case "minviews":
+                    //
+                    break;
+                //locallize all the file data
+                case "localize":
+                    let count = 1;
+                    for(const ticker of Object.keys(wikipediaTickers)) {
+                        if (wikipediaTickers[ticker] != "") {
+                            const result = await wikipedia(ticker);
+                            fs.writeFileSync(`./local/${ticker}.json`, JSON.stringify(result, null, 2));
+                            readline.clearLine(process.stdout, 0);
+                            readline.cursorTo(process.stdout, 0);
+                            process.stdout.write(chalk.bold.green(`Localized ticker data for ticker ${count}/${validTickerCount}`));  
+                            count++;
+                        }
+                    }
+                    readline.clearLine(process.stdout, 0);
+                    readline.cursorTo(process.stdout, 0);
+                    console.log(chalk.bold.bgGreen("All Wikipedia data has been localized!"))
+                    break;
+                //get biggest recent change
+                case "largestrecentchange":
+                    let maxChange = 0;
+                    let maxChangeTicker = "";
+                    if(fs.readdirSync("local").length == 0) {
+                        console.log(chalk.red.bold("Ticker data has not been localized, please type \"wiki localize\""));
+                    } else {
+                        fs.readdirSync("local").forEach(tickerFile => {
+                            const results = JSON.parse(fs.readFileSync(`./local/${tickerFile}`));
+                            const change = Math.floor(results[Object.keys(results)[Object.keys(results).length-1]] / results[Object.keys(results)[Object.keys(results).length-2]] * 10000 - 10000) / 100;
+                            if(change > maxChange && results[Object.keys(results)[Object.keys(results).length-1]] > 100) {
+                                //console.log(results[Object.keys(results)[Object.keys(results).length-1]], tickerFile.replace(".json", ""))
+                                maxChange = change;
+                                maxChangeTicker = tickerFile.replace(".json", "")
+                            }
+                        });
+                        console.log(maxChange, maxChangeTicker);
+                    }
+                    break;
                 default:
                     console.log(chalk.red.bold(`Invalid Wikipedia command entered, please try again or type ${chalk.underline("help")} for a list of valid commands`));
             }
+        */
     }
-    console.log("");
-    main();
 }
 
+
 main();
+console.log("");
+//process.exit();
